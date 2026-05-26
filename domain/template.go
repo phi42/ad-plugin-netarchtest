@@ -11,7 +11,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/phi42/ad-plugin-NetArchTest/rule"
+	"github.com/phi42/ad-enforcement-tool/rule"
 )
 
 // -------------------------
