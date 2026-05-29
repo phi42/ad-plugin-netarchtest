@@ -29,6 +29,10 @@ func Execute() {
 		fmt.Println(`{"modes":["compile","verify"],"config_prefix":"netarchtest"}`)
 		os.Exit(0)
 	}
+	if fi, err := os.Stdin.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
+		_ = rootCmd.Help()
+		os.Exit(0)
+	}
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
