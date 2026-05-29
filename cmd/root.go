@@ -42,7 +42,7 @@ func setupPluginLogger() {
 
 func Execute() {
 	if len(os.Args) == 2 && os.Args[1] == "--info" {
-		fmt.Println(`{"modes":["compile"]}`)
+		fmt.Println(`{"modes":["compile"],"config_prefix":"netarchtest"}`)
 		os.Exit(0)
 	}
 	err := rootCmd.Execute()
@@ -92,7 +92,7 @@ func run() error {
 
 	fileName := fmt.Sprintf("ADR_%s_netarch.g.cs", sanitizeFileToken(adrID))
 
-	outDir := spec.GetOutputDir()
+	outDir := spec.GetPluginConfig()["output-dir"]
 	if outDir == "" {
 		outDir = "."
 	}
