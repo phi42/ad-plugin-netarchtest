@@ -3,7 +3,6 @@ package domain
 import (
 	"bufio"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,7 +70,6 @@ func RunVerify(adrID string, td *netarchTmplData, config map[string]string) ([]V
 	if err := os.WriteFile(genPath, csContent, 0o644); err != nil {
 		return nil, fmt.Errorf("writing generated file: %w", err)
 	}
-	slog.Debug("written generated file", "path", genPath)
 
 	// Build the class name filter. The template uses "ArchitectureFrom_<id>".
 	classFilter := "ArchitectureFrom_" + toIdent(adrID)
@@ -89,7 +87,6 @@ func RunVerify(adrID string, td *netarchTmplData, config map[string]string) ([]V
 		args = append(args, strings.Fields(extraArgs)...)
 	}
 
-	slog.Debug("running dotnet test", "args", args)
 	cmd := exec.Command(dotnetPath, args...)
 	cmd.Stderr = os.Stderr
 
@@ -175,7 +172,7 @@ func RunVerify(adrID string, td *netarchTmplData, config map[string]string) ([]V
 
 	// Delete the generated file now that we are done (verify is transient).
 	if removeErr := os.Remove(genPath); removeErr != nil {
-		slog.Warn("could not remove generated file", "path", genPath, "error", removeErr)
+		fmt.Fprintf(os.Stderr, "warn: could not remove generated file %s: %v\n", genPath, removeErr)
 	}
 
 	// If dotnet test exited with code 1 that means test failures, which we already
