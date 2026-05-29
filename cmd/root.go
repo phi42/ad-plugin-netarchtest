@@ -42,7 +42,7 @@ func setupPluginLogger() {
 
 func Execute() {
 	if len(os.Args) == 2 && os.Args[1] == "--info" {
-		fmt.Println(`{"modes":["compile"],"config_prefix":"netarchtest"}`)
+		fmt.Println(`{"modes":["compile","verify"],"config_prefix":"netarchtest"}`)
 		os.Exit(0)
 	}
 	err := rootCmd.Execute()
@@ -64,15 +64,24 @@ func run() error {
 	}
 
 	// Warn about any rules this plugin does not handle. netarch only
-	// generates tests for code rules; file and custom rules are skipped.
+	// handles code rules; file and custom rules are skipped.
 	for _, r := range spec.Rules {
 		if r.GetIsFileRule() || r.GetIsCustomRule() {
 			slog.Warn(fmt.Sprintf("rule %q skipped (netarch handles code rules only)", r.GetName()))
 		}
 	}
 
+	switch spec.GetMode() {
+	case rule.InvocationMode_MODE_VERIFY:
+		return runVerify(&spec)
+	default:
+		return runCompile(&spec)
+	}
+}
+
+func runCompile(spec *rule.SpecIR) error {
 	// build template data
-	td, err := domain.BuildNetArchTemplateData(&spec)
+	td, err := domain.BuildNetArchTemplateData(spec)
 	if err != nil {
 		return fmt.Errorf("building template data: %w", err)
 	}
@@ -104,6 +113,43 @@ func run() error {
 	}
 
 	slog.Info(fmt.Sprintf("generated %s for rules in ADR [%s]", filepath.Base(outPath), adr.Title))
+	return nil
+}
+
+func runVerify(spec *rule.SpecIR) error {
+	adr := spec.GetAdr()
+	adrID := "UNKNOWN"
+	if adr != nil && adr.GetId() != "" {
+		adrID = adr.GetId()
+	}
+
+	td, err := domain.BuildNetArchTemplateData(spec)
+	if err != nil {
+		return fmt.Errorf("building template data: %w", err)
+	}
+
+	results, err := domain.RunVerify(adrID, td, spec.GetPluginConfig())
+	if err != nil {
+		return err
+	}
+
+	hasFailures := false
+	for _, res := range results {
+		if res.Passed {
+			slog.Info(fmt.Sprintf("passed [%s]", res.RuleName))
+		} else {
+			if res.Message != "" {
+				slog.Error(fmt.Sprintf("failed [%s]: %s", res.RuleName, res.Message))
+			} else {
+				slog.Error(fmt.Sprintf("failed [%s]", res.RuleName))
+			}
+			hasFailures = true
+		}
+	}
+
+	if hasFailures {
+		return fmt.Errorf("one or more architecture rules failed")
+	}
 	return nil
 }
 
