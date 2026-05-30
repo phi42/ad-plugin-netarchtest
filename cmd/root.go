@@ -1,21 +1,31 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/phi42/ad-enforcement-tool/rule"
-	"github.com/phi42/ad-plugin-NetArchTest/domain"
+	"github.com/phi42/ad-plugin-NetArchTest/netarchtest"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 )
 
+type pluginInfo struct {
+	Modes        []string `json:"modes"`
+	ConfigPrefix string   `json:"config_prefix"`
+}
+
+var info = pluginInfo{
+	Modes:        []string{"compile", "verify"},
+	ConfigPrefix: "netarchtest",
+}
+
 var rootCmd = &cobra.Command{
-	Use:   "netarchtest",
-	Short: "NetArchTest code generator for ADR-based DSL rules (code rules only)",
+	Use:   "Install this plugin using `ade plugin install` and then run it via `ade compile/verify`",
+	Short: "NetArchTest code generator for ADR rules (code rules only)",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := run(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -26,7 +36,12 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if len(os.Args) == 2 && os.Args[1] == "--info" {
-		fmt.Println(`{"modes":["compile","verify"],"config_prefix":"netarchtest"}`)
+		out, err := json.Marshal(info)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: marshaling plugin info: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(out))
 		os.Exit(0)
 	}
 	if fi, err := os.Stdin.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
@@ -51,12 +66,14 @@ func run() error {
 		return fmt.Errorf("unmarshal SpecIR protobuf: %w", err)
 	}
 
-	// Warn about any rules this plugin does not handle. netarch only
-	// handles code rules; file and custom rules are skipped.
+	var skipped int
 	for _, r := range spec.Rules {
 		if r.GetIsFileRule() || r.GetIsCustomRule() {
-			fmt.Fprintf(os.Stderr, "warn: rule %q skipped (netarch handles code rules only)\n", r.GetName())
+			skipped++
 		}
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "warn: %d rule(s) skipped (plugin can only handle code rules)\n", skipped)
 	}
 
 	switch spec.GetMode() {
@@ -68,55 +85,52 @@ func run() error {
 }
 
 func runCompile(spec *rule.SpecIR) error {
-	// build template data
-	td, err := domain.BuildNetArchTemplateData(spec)
+	td, err := netarchtest.BuildNetArchTestTemplateData(spec)
 	if err != nil {
 		return fmt.Errorf("building template data: %w", err)
 	}
 
-	// render C# file
-	out, err := domain.RenderNetArchTemplate(td)
+	if !td.HasArchTests {
+		fmt.Fprintf(os.Stderr, "warn: no code rules to compile for ADR [%s], skipping file generation\n", spec.GetAdr().GetTitle())
+		return nil
+	}
+
+	content, err := netarchtest.RenderNetArchTestTemplate(td)
 	if err != nil {
 		return fmt.Errorf("rendering template: %w", err)
 	}
 
-	// write output
-	adr := spec.GetAdr()
-	adrID := "UNKNOWN"
-	if adr != nil && adr.GetId() != "" {
-		adrID = adr.GetId()
+	filename, err := writeGeneratedFile(spec, content)
+	if err != nil {
+		return fmt.Errorf("writing generated test to file: %w", err)
 	}
 
-	fileName := fmt.Sprintf("ADR_%s_netarch.g.cs", sanitizeFileToken(adrID))
+	fmt.Fprintf(os.Stderr, "generated %s for rules in ADR [%s]\n", filename, spec.GetAdr().GetTitle())
 
-	outDir := spec.GetPluginConfig()["output-dir"]
-	if outDir == "" {
-		outDir = "."
-	}
-
-	outPath := filepath.Join(outDir, fileName)
-
-	if err := os.WriteFile(outPath, out, 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", outPath, err)
-	}
-
-	fmt.Fprintf(os.Stderr, "generated %s for rules in ADR [%s]\n", filepath.Base(outPath), adr.Title)
 	return nil
 }
 
 func runVerify(spec *rule.SpecIR) error {
-	adr := spec.GetAdr()
-	adrID := "UNKNOWN"
-	if adr != nil && adr.GetId() != "" {
-		adrID = adr.GetId()
-	}
-
-	td, err := domain.BuildNetArchTemplateData(spec)
+	td, err := netarchtest.BuildNetArchTestTemplateData(spec)
 	if err != nil {
 		return fmt.Errorf("building template data: %w", err)
 	}
 
-	results, err := domain.RunVerify(adrID, td, spec.GetPluginConfig())
+	if !td.HasArchTests {
+		fmt.Fprintf(os.Stderr, "warn: no code rules to verify for ADR [%s], skipping\n", spec.GetAdr().GetTitle())
+		return nil
+	}
+
+	content, err := netarchtest.RenderNetArchTestTemplate(td)
+	if err != nil {
+		return fmt.Errorf("rendering template: %w", err)
+	}
+
+	if _, err := writeGeneratedFile(spec, content); err != nil {
+		return fmt.Errorf("writing generated test to file: %w", err)
+	}
+
+	results, err := netarchtest.RunVerify(spec.GetAdr().GetId(), netarchtest.BuildMethodToRuleMap(td), spec.GetPluginConfig())
 	if err != nil {
 		return err
 	}
@@ -141,11 +155,22 @@ func runVerify(spec *rule.SpecIR) error {
 	return nil
 }
 
-var nonFileToken = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
-
-func sanitizeFileToken(s string) string {
-	if s == "" {
-		return "UNKNOWN"
+// writeGeneratedFile creates outDir if needed and writes content to outDir/filename.
+func writeGeneratedFile(spec *rule.SpecIR, content []byte) (string, error) {
+	adr := spec.GetAdr()
+	outDir := spec.GetPluginConfig()["output-dir"]
+	if outDir == "" {
+		outDir = "."
 	}
-	return nonFileToken.ReplaceAllString(s, "_")
+
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating output directory %q: %w", outDir, err)
+	}
+
+	filename := netarchtest.GenFileName(adr.GetId())
+	outPath := filepath.Join(outDir, filename)
+	if err := os.WriteFile(outPath, content, 0o644); err != nil {
+		return "", fmt.Errorf("writing %s: %w", outPath, err)
+	}
+	return filename, nil
 }
