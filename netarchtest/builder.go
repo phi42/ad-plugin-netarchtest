@@ -20,10 +20,10 @@ func GenFileName(adrID string) string {
 	return fmt.Sprintf("ADR_%s_NetArchTest.g.cs", sanitized)
 }
 
-// BuildNetArchTestTemplateData translates a SpecIR into template data ready for
+// BuildNetArchTestTemplateData translates a Spec into template data ready for
 // rendering into a C# NUnit/NetArchTest test class.
-func BuildNetArchTestTemplateData(spec *rule.SpecIR) (*templateData, error) {
-	selMap := make(map[string]*rule.SelectorIR, len(spec.Selectors))
+func BuildNetArchTestTemplateData(spec *rule.Spec) (*templateData, error) {
+	selMap := make(map[string]*rule.Selector, len(spec.Selectors))
 	for _, s := range spec.Selectors {
 		selMap[s.Name] = s
 	}
@@ -245,9 +245,9 @@ func inferForbiddenFromContracts(ns string) []string {
 	}
 }
 
-// resolveTarget resolves a TargetRefIR to a namespace pattern string.
+// resolveTarget resolves a TargetRef to a namespace pattern string.
 // The bool return indicates whether it was a selector reference (true) or inline (false).
-func resolveTarget(target *rule.TargetRefIR, selMap map[string]*rule.SelectorIR) (string, bool) {
+func resolveTarget(target *rule.TargetRef, selMap map[string]*rule.Selector) (string, bool) {
 	if target == nil {
 		return "", false
 	}
@@ -261,7 +261,7 @@ func resolveTarget(target *rule.TargetRefIR, selMap map[string]*rule.SelectorIR)
 }
 
 // collectExcludes converts the exclude list of a rule into excludeData values.
-func collectExcludes(r *rule.RuleIR) []excludeData {
+func collectExcludes(r *rule.Rule) []excludeData {
 	var ex []excludeData
 	for _, e := range r.Excludes {
 		switch e.Kind {
@@ -278,7 +278,7 @@ func collectExcludes(r *rule.RuleIR) []excludeData {
 
 // newTestCase assembles a testData value from the common fields shared by every
 // generated NUnit test method.
-func newTestCase(spec *rule.SpecIR, r *rule.RuleIR, predicatesChain, condMethod, condArgs string) testData {
+func newTestCase(spec *rule.Spec, r *rule.Rule, predicatesChain, condMethod, condArgs string) testData {
 	return testData{
 		TestMethodName:  toIdent(spec.Adr.Id + "_" + r.Name),
 		TypesSetup:      "        var types = Types.InCurrentDomain();",
@@ -294,7 +294,7 @@ func newTestCase(spec *rule.SpecIR, r *rule.RuleIR, predicatesChain, condMethod,
 
 // buildForbidTest creates an arch test for RULE_NOT_DEPEND.
 // Maps to NotHaveDependencyOnAny with forbidden namespaces as arguments.
-func buildForbidTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR) (testData, error) {
+func buildForbidTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector) (testData, error) {
 	subjectPredicate := buildSubjectPredicate(r.From, selMap)
 	if subjectPredicate == "" {
 		if r.From == nil {
@@ -321,7 +321,7 @@ func buildForbidTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.
 
 // buildAllowOnlyTest creates an arch test for RULE_DEPEND_ONLY.
 // Inverts the allowed set: all selectors not in the allowed list become forbidden.
-func buildAllowOnlyTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR) (testData, error) {
+func buildAllowOnlyTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector) (testData, error) {
 	subjectPredicate := buildSubjectPredicate(r.From, selMap)
 	if subjectPredicate == "" {
 		if r.From == nil {
@@ -375,7 +375,7 @@ func buildAllowOnlyTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*ru
 
 // buildAnnotateTest creates an arch test for annotate/not-annotate rules.
 // condMethod is "HaveCustomAttribute" or "NotHaveCustomAttribute".
-func buildAnnotateTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR, condMethod string) (testData, error) {
+func buildAnnotateTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector, condMethod string) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
 	}
@@ -397,7 +397,7 @@ func buildAnnotateTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rul
 
 // buildTypeTargetTest creates an arch test that uses typeof(X) as the condition argument.
 // Used for RULE_IMPLEMENT, RULE_NOT_IMPLEMENT, RULE_EXTEND, RULE_NOT_EXTEND.
-func buildTypeTargetTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR, condMethod string) (testData, error) {
+func buildTypeTargetTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector, condMethod string) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
 	}
@@ -419,7 +419,7 @@ func buildTypeTargetTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*r
 
 // buildNamespaceCondTest creates an arch test using namespace as a condition.
 // Used for RULE_IN (ResideInNamespace) and RULE_NOT_IN (NotResideInNamespace).
-func buildNamespaceCondTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR, condMethod string) (testData, error) {
+func buildNamespaceCondTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector, condMethod string) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
 	}
@@ -446,7 +446,7 @@ func buildNamespaceCondTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string
 
 // buildNamePatternCondTest creates an arch test using a name regex as a condition.
 // Used for RULE_MATCH (HaveNameMatching) and RULE_NOT_MATCH (NotHaveNameMatching).
-func buildNamePatternCondTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR, condMethod string) (testData, error) {
+func buildNamePatternCondTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector, condMethod string) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
 	}
@@ -468,7 +468,7 @@ func buildNamePatternCondTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[stri
 
 // buildVisibilityTest creates an arch test for RULE_VISIBILITY.
 // Maps to BePublic(), BeInternal(), or BePrivate() in NetArchTest.
-func buildVisibilityTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR) (testData, error) {
+func buildVisibilityTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
 	}
@@ -495,7 +495,7 @@ func buildVisibilityTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*r
 
 // buildTypeConstraintTest creates an arch test for RULE_TYPE_CONSTRAINT.
 // Maps to BeAbstract(), BeSealed(), or BeStatic() in NetArchTest.
-func buildTypeConstraintTest(spec *rule.SpecIR, r *rule.RuleIR, selMap map[string]*rule.SelectorIR) (testData, error) {
+func buildTypeConstraintTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
 	}

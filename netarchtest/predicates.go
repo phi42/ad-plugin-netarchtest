@@ -51,8 +51,8 @@ func buildPredicatesChain(primary string, excludes []excludeData) string {
 }
 
 // buildSubjectPredicate builds the primary NetArchTest type-filter predicate for a
-// subject TargetRefIR, including an optional scope (in-clause) constraint.
-func buildSubjectPredicate(from *rule.TargetRefIR, selMap map[string]*rule.SelectorIR) string {
+// subject TargetRef, including an optional scope (in-clause) constraint.
+func buildSubjectPredicate(from *rule.TargetRef, selMap map[string]*rule.Selector) string {
 	if from == nil {
 		return ""
 	}
@@ -76,9 +76,9 @@ func buildSubjectPredicate(from *rule.TargetRefIR, selMap map[string]*rule.Selec
 	return strings.Join(parts, ".\n            And().")
 }
 
-// buildSinglePredicate builds a NetArchTest predicate for a single TargetRefIR,
+// buildSinglePredicate builds a NetArchTest predicate for a single TargetRef,
 // without considering any scope clause.
-func buildSinglePredicate(ref *rule.TargetRefIR, selMap map[string]*rule.SelectorIR) string {
+func buildSinglePredicate(ref *rule.TargetRef, selMap map[string]*rule.Selector) string {
 	if ref == nil {
 		return ""
 	}
@@ -90,7 +90,7 @@ func buildSinglePredicate(ref *rule.TargetRefIR, selMap map[string]*rule.Selecto
 		return ""
 	}
 
-	switch ref.Type {
+	switch ref.Kind {
 	case rule.SelectorKind_SELECTOR_COMPONENT:
 		ns := normalizeNamespace(ref.Value)
 		if ns == "" {

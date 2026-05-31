@@ -55,15 +55,15 @@ func Execute() {
 }
 
 func run() error {
-	// read protobuf SpecIR from stdin
+	// read protobuf Spec from stdin
 	payload, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)
 	}
 
-	var spec rule.SpecIR
+	var spec rule.Spec
 	if err := proto.Unmarshal(payload, &spec); err != nil {
-		return fmt.Errorf("unmarshal SpecIR protobuf: %w", err)
+		return fmt.Errorf("unmarshal Spec protobuf: %w", err)
 	}
 
 	var skipped int
@@ -84,7 +84,7 @@ func run() error {
 	}
 }
 
-func runCompile(spec *rule.SpecIR) error {
+func runCompile(spec *rule.Spec) error {
 	td, err := netarchtest.BuildNetArchTestTemplateData(spec)
 	if err != nil {
 		return fmt.Errorf("building template data: %w", err)
@@ -110,7 +110,7 @@ func runCompile(spec *rule.SpecIR) error {
 	return nil
 }
 
-func runVerify(spec *rule.SpecIR) error {
+func runVerify(spec *rule.Spec) error {
 	td, err := netarchtest.BuildNetArchTestTemplateData(spec)
 	if err != nil {
 		return fmt.Errorf("building template data: %w", err)
@@ -156,7 +156,7 @@ func runVerify(spec *rule.SpecIR) error {
 }
 
 // writeGeneratedFile creates outDir if needed and writes content to outDir/filename.
-func writeGeneratedFile(spec *rule.SpecIR, content []byte) (string, error) {
+func writeGeneratedFile(spec *rule.Spec, content []byte) (string, error) {
 	adr := spec.GetAdr()
 	outDir := spec.GetPluginConfig()["output-dir"]
 	if outDir == "" {
