@@ -56,31 +56,31 @@ ade config set plugin_configs.netarchtest.test-project  ./src/Tests/MyProject.Te
 
 Pass `--global` to write the value to the user-level config instead of the project-level `.ade.yaml`.
 
-| Config key                                  | Required for | Description |
-| ------------------------------------------- | ------------ | ----------- |
-| `plugin_configs.netarchtest.output-dir`     | compile, verify | Directory in which to write the generated `.g.cs` file. Defaults to `.`. |
-| `plugin_configs.netarchtest.test-project`   | verify | Path to the `.csproj` of the .NET test project. |
+| Config key                                | Required for    | Description                                                              |
+| ----------------------------------------- | --------------- | ------------------------------------------------------------------------ |
+| `plugin_configs.netarchtest.output-dir`   | compile, verify | Directory in which to write the generated `.g.cs` file. Defaults to `.`. |
+| `plugin_configs.netarchtest.test-project` | verify          | Path to the `.csproj` of the .NET test project.                          |
 
 ## Supported rules
 
 Only `code` blocks are processed. `file` blocks are skipped with a warning.
 
-| ADE DSL assertion                           | NetArchTest condition                              |
-| ------------------------------------------- | -------------------------------------------------- |
-| `must not depend on`                        | `.Should().NotHaveDependencyOnAny(…)`              |
-| `must only depend on`                       | `.Should().NotHaveDependencyOnAny(…)`              |
-| `must implement interface`                  | `.Should().ImplementInterface(typeof(…))`          |
-| `must not implement interface`              | `.Should().NotImplementInterface(typeof(…))`       |
-| `must extend`                               | `.Should().Inherit(typeof(…))`                     |
-| `must not extend`                           | `.Should().NotInherit(typeof(…))`                  |
-| `must be annotated with`                    | `.Should().HaveCustomAttribute(typeof(…))`         |
-| `must not be annotated with`                | `.Should().NotHaveCustomAttribute(typeof(…))`      |
-| `must be in`                                | `.Should().ResideInNamespace(…)`                   |
-| `must not be in`                            | `.Should().NotResideInNamespace(…)`                |
-| `must match`                                | `.Should().HaveNameMatching(…)`                    |
-| `must not match`                            | `.Should().NotHaveNameMatching(…)`                 |
-| `must be public/internal/private`           | `.Should().BePublic()` etc.                        |
-| `must be abstract/sealed/static`            | `.Should().BeAbstract()` etc.                      |
+| ADL assertion                     | NetArchTest condition                         |
+| --------------------------------- | --------------------------------------------- |
+| `must not depend on`              | `.Should().NotHaveDependencyOnAny(…)`         |
+| `must only depend on`             | `.Should().NotHaveDependencyOnAny(…)`         |
+| `must implement interface`        | `.Should().ImplementInterface(typeof(…))`     |
+| `must not implement interface`    | `.Should().NotImplementInterface(typeof(…))`  |
+| `must extend`                     | `.Should().Inherit(typeof(…))`                |
+| `must not extend`                 | `.Should().NotInherit(typeof(…))`             |
+| `must be annotated with`          | `.Should().HaveCustomAttribute(typeof(…))`    |
+| `must not be annotated with`      | `.Should().NotHaveCustomAttribute(typeof(…))` |
+| `must be in`                      | `.Should().ResideInNamespace(…)`              |
+| `must not be in`                  | `.Should().NotResideInNamespace(…)`           |
+| `must match`                      | `.Should().HaveNameMatching(…)`               |
+| `must not match`                  | `.Should().NotHaveNameMatching(…)`            |
+| `must be public/internal/private` | `.Should().BePublic()` etc.                   |
+| `must be abstract/sealed/static`  | `.Should().BeAbstract()` etc.                 |
 
 `exclude` clauses are translated to `.And().<predicate>` entries in the `.That()` chain.
 
@@ -102,7 +102,3 @@ Namespace patterns use `StartsWith` matching in NetArchTest, so `"MyApp.Infrastr
 ## Documentation
 
 See [docs/implementation.md](docs/implementation.md) for a high-level explanation of the code structure and implementation design.
-
-## License
-
-Licensed under the [Apache License, Version 2.0](./LICENSE).

@@ -81,6 +81,10 @@ The main concern here is translating the ADL concepts of subject, selector kind 
 
 Executes the embedded Go template with the template data and returns the resulting C# source as bytes. The template file is embedded into the binary at build time using `//go:embed`, so the plugin has no runtime file dependencies.
 
+#### `runner.go`
+
+Implements the verify mode runtime. It invokes `dotnet test` scoped to the generated class, pipes the console output through a streaming line parser, and maps each `Passed`/`Failed` result back to the original ADE rule name. After the test process exits it removes the generated `.g.cs` file to avoid leaving temporary files on disk. If `dotnet test` exits with code 1 (test failures), the runner treats it as a normal outcome and returns the per-rule results; any other non-zero exit code is treated as an infrastructure error.
+
 #### `test.tmpl`
 
 A Go `text/template` that produces a complete, compilable C# source file containing one NUnit `[TestFixture]` class. The class has one `[Test]` method per rule. Each method:
@@ -92,68 +96,65 @@ A Go `text/template` that produces a complete, compilable C# source file contain
 
 Any skipped rules are listed as comments at the bottom of the class.
 
-#### `runner.go`
-
-Implements the verify mode runtime. It invokes `dotnet test` scoped to the generated class, pipes the console output through a streaming line parser, and maps each `Passed`/`Failed` result back to the original ADE rule name. After the test process exits it removes the generated `.g.cs` file to avoid leaving temporary files on disk. If `dotnet test` exits with code 1 (test failures), the runner treats it as a normal outcome and returns the per-rule results; any other non-zero exit code is treated as an infrastructure error.
-
 ## Execution flow
 
 ```
-┌──────────────────────────────────────────┐   ┌─────────────────────────────────────────┐
-│  ade compile -i adr.rule -p netarchtest  │   │  ade verify -i adr.rule -p netarchtest  │
-└────────────────────┬─────────────────────┘   └───────────────────┬─────────────────────┘
-                     │                                             │
-                     └───────────────────────┬─────────────────────┘
-                                             │
-                                             ▼
-                              ┌─────────────────────────────┐
-                              │         [cmd/root.go]       │
-                              │                             │
-                              │  Read SpecIR from stdin     │
-                              └──────────────┬──────────────┘
-                                             │
-                                             ▼
-                              ┌─────────────────────────────┐
-                              │   [netarchtest/builder.go]  │
-                              │                             │
-                              │  Translate code rules       │
-                              │  Assemble template data     │
-                              └──────────────┬──────────────┘
-                                             │
-                                             ▼
-                              ┌─────────────────────────────┐
-                              │  [netarchtest/render.go]    │
-                              │                             │
-                              │  Execute Go template        │
-                              │  => C# source bytes         │
-                              └──────────────┬──────────────┘
-                                             │
-                                             ▼
-                              ┌─────────────────────────────┐
-                              │         [cmd/root.go]       │
-                              │                             │
-                              │  Write test files (.g.cs)   │
-                              └──────────────┬──────────────┘
-                                             │
-                                 ┌───────────┴───────────┐
-                                 │                       │
-                              compile                 verify
-                                 │                       │
-                                 ▼                       ▼
-                         ┌───────────────┐  ┌───────────────────────────┐
-                         │    (done)     │  │  [netarchtest/runner.go]  │
-                         └───────────────┘  │                           │
-                                            │  Run dotnet test          │
-                                            │  Parse results            │
-                                            │  Remove .g.cs file        │
-                                            └───────────┬───────────────┘
-                                                        │
-                                                        ▼
-                                            ┌───────────────────────────┐
-                                            │      [cmd/root.go]        │
-                                            │                           │
-                                            │  Print pass/fail          │
-                                            │  per rule to stderr       │
-                                            └───────────────────────────┘
+┌────────────────────┐   ┌────────────────────┐
+│  ade compile       │   │  ade verify        │
+│    -i adr.rule     │   │    -i adr.rule     │
+│    -p netarchtest  │   │    -p netarchtest  │
+└─────────┬──────────┘   └──────────┬─────────┘
+          │                         │
+          └────────────┬────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │         [cmd/root.go]       │
+        │                             │
+        │  Read SpecIR from stdin     │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │   [netarchtest/builder.go]  │
+        │                             │
+        │  Translate code rules       │
+        │  Assemble template data     │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │  [netarchtest/render.go]    │
+        │                             │
+        │  Execute Go template        │
+        │  => C# source bytes         │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────┐
+        │         [cmd/root.go]       │
+        │                             │
+        │  Write test files (.g.cs)   │
+        └──────────────┬──────────────┘
+                       │
+           ┌───────────┴───────────┐
+           │                       │
+        compile                 verify
+           │                       │
+           ▼                       ▼
+   ┌───────────────┐  ┌───────────────────────────┐
+   │    (done)     │  │  [netarchtest/runner.go]  │
+   └───────────────┘  │                           │
+                      │  Run dotnet test          │
+                      │  Parse results            │
+                      │  Remove .g.cs file        │
+                      └───────────┬───────────────┘
+                                  │
+                                  ▼
+                      ┌───────────────────────────┐
+                      │      [cmd/root.go]        │
+                      │                           │
+                      │  Print pass/fail          │
+                      │  per rule to stderr       │
+                      └───────────────────────────┘
 ```
-
