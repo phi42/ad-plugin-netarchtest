@@ -4,7 +4,7 @@ This document explains the code structure, design, and execution flow of the Net
 
 ## Architecture
 
-The plugin is a standalone Go binary. The `ade` tool invokes it by serializing a `SpecIR` protobuf message (which represents one parsed `.rule` file) and writing those bytes to the plugin's stdin. The plugin reads stdin, processes the rules, and communicates results through stdout (JSON info response) or stderr (progress, warnings, and errors).
+The plugin is a standalone Go binary. The `ade` tool invokes it by serializing a `Spec` protobuf message (which represents one parsed `.rule` file) and writing those bytes to the plugin's stdin. The plugin reads stdin, processes the rules, and communicates results through stdout (JSON info response) or stderr (progress, warnings, and errors).
 
 The plugin supports two modes:
 
@@ -22,7 +22,7 @@ ad-plugin-netarchtest/
 │    └── root.go            plugin protocol, mode dispatch, file I/O
 └── netarchtest/
     ├── types.go            internal data types for the template pipeline
-    ├── builder.go          rule translation (SpecIR → template data)
+    ├── builder.go          rule translation (Spec → template data)
     ├── predicates.go       NetArchTest predicate string construction
     ├── render.go           Go template execution
     ├── test.tmpl           embedded C# test class template
@@ -43,7 +43,7 @@ Implements the plugin protocol and top-level flow:
 
 - When invoked with `--info`, it prints a JSON descriptor listing the supported modes and config prefix, then exits. The `ade` host calls this before each invocation to verify that the plugin supports the requested mode.
 - When invoked interactively (stdin is a terminal), it prints a help message and exits.
-- Otherwise, it reads the serialized `SpecIR` protobuf from stdin and dispatches to compile or verify mode based on the mode field in the spec.
+- Otherwise, it reads the serialized `Spec` protobuf from stdin and dispatches to compile or verify mode based on the mode field in the spec.
 
 In compile mode it calls the builder, passes the result to the renderer, and writes the output file to the configured directory. In verify mode it does the same and then additionally calls into the runner to execute `dotnet test` and print per-rule pass/fail results.
 
@@ -59,7 +59,7 @@ Defines the three data types that carry information through the translation pipe
 
 #### `builder.go`
 
-The core translation layer. It iterates over the rules in the `SpecIR`, dispatches by rule kind, and assembles the template data structure that the renderer consumes.
+The core translation layer. It iterates over the rules in the `Spec`, dispatches by rule kind, and assembles the template data structure that the renderer consumes.
 
 Each supported rule kind maps to a specific NetArchTest condition. For dependency rules, the `from` subject (a namespace, class, or interface pattern) becomes the `.That()` predicate chain and the target namespaces become the `.Should()` condition arguments.
 
@@ -69,7 +69,7 @@ The most notable mapping is `must only depend on`: because NetArchTest cannot as
 
 Rules that cannot be expressed (incoming-dependency checks and cycle detection) are collected into a skipped list, which the template renders as comments inside the generated class.
 
-The file also contains several utility functions for identifier sanitization, namespace normalization, deduplication, and resolving `TargetRefIR` values (which may be either inline literals or references to named selectors defined earlier in the rule file).
+The file also contains several utility functions for identifier sanitization, namespace normalization, deduplication, and resolving `TargetRef` values (which may be either inline literals or references to named selectors defined earlier in the rule file).
 
 #### `predicates.go`
 
@@ -107,11 +107,16 @@ Any skipped rules are listed as comments at the bottom of the class.
           │                         │
           └────────────┬────────────┘
                        │
+                       │
+          (ade serializes .rule file
+           writes it to plugin's stdin)
+                       │
+                       │
                        ▼
         ┌─────────────────────────────┐
         │         [cmd/root.go]       │
         │                             │
-        │  Read SpecIR from stdin     │
+        │  Read Spec from stdin       │
         └──────────────┬──────────────┘
                        │
                        ▼
