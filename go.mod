@@ -3,7 +3,7 @@ module github.com/phi42/ad-plugin-NetArchTest
 go 1.25.0
 
 require (
-	github.com/phi42/ad-enforcement-tool v0.1.1-dev
+	github.com/phi42/ad-enforcement-tool v0.1.1
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/protobuf v1.36.11
 )

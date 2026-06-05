@@ -102,3 +102,7 @@ Namespace patterns use `StartsWith` matching in NetArchTest, so `"MyApp.Infrastr
 ## Documentation
 
 See [docs/implementation.md](docs/implementation.md) for a high-level explanation of the code structure and implementation design.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](./LICENSE).
