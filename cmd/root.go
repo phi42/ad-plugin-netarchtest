@@ -16,7 +16,11 @@ import (
 type pluginInfo struct {
 	Modes        []string `json:"modes"`
 	ConfigPrefix string   `json:"config_prefix"`
+	Version      string   `json:"version,omitempty"`
 }
+
+// Version is set at build time via -ldflags.
+var Version = "0.1.2-dev"
 
 var info = pluginInfo{
 	Modes:        []string{"compile", "verify"},
@@ -36,6 +40,7 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if len(os.Args) == 2 && os.Args[1] == "--info" {
+		info.Version = Version
 		out, err := json.Marshal(info)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: marshaling plugin info: %v\n", err)
