@@ -20,7 +20,7 @@ type pluginInfo struct {
 }
 
 // Version is set at build time via -ldflags.
-var Version = "0.1.2-dev"
+var Version = "0.1.3-dev"
 
 var info = pluginInfo{
 	Modes:        []string{"compile", "verify"},
@@ -112,6 +112,12 @@ func runCompile(spec *rule.Spec) error {
 
 	fmt.Fprintf(os.Stderr, "generated %s for rules in ADR [%s]\n", filename, spec.GetAdr().GetTitle())
 
+	if preloaderName, err := writePreloaderIfConfigured(spec); err != nil {
+		return fmt.Errorf("writing preloader: %w", err)
+	} else if preloaderName != "" {
+		fmt.Fprintf(os.Stderr, "generated %s\n", preloaderName)
+	}
+
 	return nil
 }
 
@@ -178,4 +184,30 @@ func writeGeneratedFile(spec *rule.Spec, content []byte) (string, error) {
 		return "", fmt.Errorf("writing %s: %w", outPath, err)
 	}
 	return filename, nil
+}
+
+// writePreloaderIfConfigured emits AssemblyPreloader.g.cs into the configured
+// output-dir when plugin_configs.netarchtest.assembly-prefixes is set. Returns
+// the generated filename, or "" when the config is unset.
+func writePreloaderIfConfigured(spec *rule.Spec) (string, error) {
+	prefixes := netarchtest.ParseAssemblyPrefixes(spec.GetPluginConfig()["assembly-prefixes"])
+	if len(prefixes) == 0 {
+		return "", nil
+	}
+	outDir := spec.GetPluginConfig()["output-dir"]
+	if outDir == "" {
+		outDir = "."
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating output directory %q: %w", outDir, err)
+	}
+	content, err := netarchtest.RenderAssemblyPreloader(prefixes)
+	if err != nil {
+		return "", err
+	}
+	outPath := filepath.Join(outDir, netarchtest.AssemblyPreloaderFileName)
+	if err := os.WriteFile(outPath, content, 0o644); err != nil {
+		return "", fmt.Errorf("writing %s: %w", outPath, err)
+	}
+	return netarchtest.AssemblyPreloaderFileName, nil
 }

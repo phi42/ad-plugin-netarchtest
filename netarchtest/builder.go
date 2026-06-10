@@ -154,7 +154,7 @@ func BuildNetArchTestTemplateData(spec *rule.Spec) (*templateData, error) {
 	return &templateData{
 		AdrID:        spec.Adr.Id,
 		AdrTitle:     spec.Adr.Title,
-		AdrClassName: "ArchitectureFrom_" + toIdent(spec.Adr.Id),
+		AdrClassName: "ArchitectureTests_ADR_" + toIdent(spec.Adr.Id),
 		HasArchTests: len(archTests) > 0,
 		HasSkipped:   len(skippedRules) > 0,
 		ArchTests:    archTests,
@@ -174,16 +174,15 @@ func BuildMethodToRuleMap(td *templateData) map[string]string {
 
 var identRe = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
 
-// toIdent converts an arbitrary string into a valid C# / Go identifier by
-// replacing non-alphanumeric characters with underscores.
+// toIdent converts an arbitrary string into a valid C# / Go identifier fragment
+// by replacing non-alphanumeric characters with underscores. Callers prepend a
+// word (e.g. "ArchitectureTests_ADR_", "Rule_") so the result need not stand on
+// its own as a complete identifier.
 func toIdent(s string) string {
 	s = identRe.ReplaceAllString(s, "_")
 	s = strings.Trim(s, "_")
 	if s == "" {
-		return "Rule"
-	}
-	if s[0] >= '0' && s[0] <= '9' {
-		s = "R_" + s
+		s = "unnamed"
 	}
 	return s
 }
@@ -193,6 +192,16 @@ func normalizeNamespace(p string) string {
 	p = strings.TrimSpace(p)
 	p = strings.TrimRight(p, ".")
 	return strings.TrimSpace(p)
+}
+
+// splitRegex strips the DSL's "regex:" prefix from p, returning the bare pattern
+// and a bool indicating whether the prefix was present.
+func splitRegex(p string) (string, bool) {
+	const prefix = "regex:"
+	if after, ok := strings.CutPrefix(p, prefix); ok {
+		return strings.TrimSpace(after), true
+	}
+	return p, false
 }
 
 // uniqueNonEmpty returns a deduplicated slice of non-empty, normalised strings.
@@ -270,7 +279,8 @@ func collectExcludes(r *rule.Rule) []excludeData {
 		case rule.ExcludeKind_EXCLUDE_IMPLEMENT_INTERFACE:
 			ex = append(ex, excludeData{Kind: "ImplementInterface", Value: e.Value})
 		case rule.ExcludeKind_EXCLUDE_COMPONENT:
-			ex = append(ex, excludeData{Kind: "NamespaceEquals", Value: normalizeNamespace(e.Value)})
+			pat, isRegex := splitRegex(normalizeNamespace(e.Value))
+			ex = append(ex, excludeData{Kind: "NamespaceEquals", Value: pat, IsRegex: isRegex})
 		}
 	}
 	return ex
@@ -280,7 +290,7 @@ func collectExcludes(r *rule.Rule) []excludeData {
 // generated NUnit test method.
 func newTestCase(spec *rule.Spec, r *rule.Rule, predicatesChain, condMethod, condArgs string) testData {
 	return testData{
-		TestMethodName:  toIdent(spec.Adr.Id + "_" + r.Name),
+		TestMethodName:  "Rule_" + toIdent(r.Name),
 		TypesSetup:      "        var types = Types.InCurrentDomain();",
 		PredicatesChain: predicatesChain,
 		ConditionMethod: condMethod,
@@ -306,6 +316,14 @@ func buildForbidTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Sele
 	var forbidden []string
 	for _, t := range r.Targets {
 		if ns, _ := resolveTarget(t, selMap); ns != "" {
+			if _, isRegex := splitRegex(ns); isRegex {
+				return testData{}, fmt.Errorf(
+					"rule %q: regex namespace targets are not supported in dependency rules "+
+						"(NetArchTest's NotHaveDependencyOnAny only accepts literal namespace prefixes). "+
+						"Use literal targets or split the rule.",
+					r.Name,
+				)
+			}
 			forbidden = append(forbidden, ns)
 		}
 	}
@@ -337,6 +355,14 @@ func buildAllowOnlyTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.S
 		if ns == "" {
 			continue
 		}
+		if _, isRegex := splitRegex(ns); isRegex {
+			return testData{}, fmt.Errorf(
+				"rule %q: regex namespace targets are not supported in dependency rules "+
+					"(NetArchTest's NotHaveDependencyOnAny only accepts literal namespace prefixes). "+
+					"Use literal targets or split the rule.",
+				r.Name,
+			)
+		}
 		allowedNamespaces = append(allowedNamespaces, ns)
 		if targetIsSel && t != nil && !t.IsInline {
 			allowedSelNames[t.Value] = true
@@ -353,6 +379,12 @@ func buildAllowOnlyTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.S
 			continue
 		}
 		if ns := normalizeNamespace(sel.Pattern); ns != "" {
+			if _, isRegex := splitRegex(ns); isRegex {
+				// Silently skip regex selectors in the inverted set — we cannot
+				// pass them to NotHaveDependencyOnAny. The 'forbidden' set is a
+				// best-effort inference; literal selectors still apply.
+				continue
+			}
 			forbidden = append(forbidden, ns)
 		}
 	}
@@ -418,7 +450,9 @@ func buildTypeTargetTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.
 }
 
 // buildNamespaceCondTest creates an arch test using namespace as a condition.
-// Used for RULE_IN (ResideInNamespace) and RULE_NOT_IN (NotResideInNamespace).
+// condMethod is one of "ResideInNamespace" / "NotResideInNamespace"; when the
+// resolved target carries a "regex:" prefix the method is upgraded to the
+// "*Matching" variant.
 func buildNamespaceCondTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*rule.Selector, condMethod string) (testData, error) {
 	if r.From == nil {
 		return testData{}, fmt.Errorf("rule %q: missing 'from' subject", r.Name)
@@ -432,6 +466,16 @@ func buildNamespaceCondTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*ru
 		return testData{}, fmt.Errorf("rule %q: cannot resolve namespace target", r.Name)
 	}
 
+	pat, isRegex := splitRegex(ns)
+	if isRegex {
+		switch condMethod {
+		case "ResideInNamespace":
+			condMethod = "ResideInNamespaceMatching"
+		case "NotResideInNamespace":
+			condMethod = "NotResideInNamespaceMatching"
+		}
+	}
+
 	primaryPredicate := buildSubjectPredicate(r.From, selMap)
 	if primaryPredicate == "" {
 		return testData{}, fmt.Errorf("rule %q: cannot resolve subject", r.Name)
@@ -440,7 +484,7 @@ func buildNamespaceCondTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*ru
 	return newTestCase(spec, r,
 		buildPredicatesChain(primaryPredicate, collectExcludes(r)),
 		condMethod,
-		fmt.Sprintf(`"%s"`, strings.ReplaceAll(ns, `"`, `\"`)),
+		fmt.Sprintf(`"%s"`, strings.ReplaceAll(pat, `"`, `\"`)),
 	), nil
 }
 
@@ -459,10 +503,12 @@ func buildNamePatternCondTest(spec *rule.Spec, r *rule.Rule, selMap map[string]*
 		return testData{}, fmt.Errorf("rule %q: cannot resolve subject", r.Name)
 	}
 
+	pat, _ := splitRegex(r.Targets[0].Value)
+
 	return newTestCase(spec, r,
 		buildPredicatesChain(primaryPredicate, collectExcludes(r)),
 		condMethod,
-		fmt.Sprintf(`"%s"`, strings.ReplaceAll(r.Targets[0].Value, `"`, `\"`)),
+		fmt.Sprintf(`"%s"`, strings.ReplaceAll(pat, `"`, `\"`)),
 	), nil
 }
 

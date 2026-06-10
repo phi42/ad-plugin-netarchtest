@@ -38,7 +38,7 @@ func RunVerify(adrID string, methodToRule map[string]string, config map[string]s
 
 	genPath := filepath.Join(outputDir, GenFileName(adrID))
 
-	classFilter := "ArchitectureFrom_" + toIdent(adrID)
+	classFilter := "ArchitectureTests_ADR_" + toIdent(adrID)
 	args := []string{
 		"test",
 		testProject,

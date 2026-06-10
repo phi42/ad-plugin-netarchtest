@@ -2,8 +2,9 @@ package netarchtest
 
 // excludeData represents a single exclusion filter applied to a NetArchTest predicate chain.
 type excludeData struct {
-	Kind  string // "NameEquals" | "NameEndsWith" | "ImplementInterface" | "NamespaceEquals"
-	Value string // C#-ready value (type name for interface, string for name patterns)
+	Kind    string // "NameEquals" | "NameEndsWith" | "ImplementInterface" | "NamespaceEquals"
+	Value   string // C#-ready value (type name for interface, string for name patterns)
+	IsRegex bool   // when true, emit the regex-aware variant of the exclusion (e.g. DoNotResideInNamespaceMatching)
 }
 
 // testData holds template data for a single generated NUnit test method.

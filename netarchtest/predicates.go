@@ -15,11 +15,15 @@ func buildExcludeChain(ex []excludeData) []string {
 		case "ImplementInterface":
 			out = append(out, fmt.Sprintf(`DoNotImplementInterface(typeof(%s))`, e.Value))
 		case "NameEndsWith":
-			out = append(out, fmt.Sprintf(`DoNotHaveNameEndingWith("%s")`, strings.ReplaceAll(e.Value, `"`, `\"`)))
+			out = append(out, fmt.Sprintf(`DoNotHaveNameEndingWith("%s")`, escapeQuotes(e.Value)))
 		case "NameEquals":
-			out = append(out, fmt.Sprintf(`DoNotHaveName("%s")`, strings.ReplaceAll(e.Value, `"`, `\"`)))
+			out = append(out, fmt.Sprintf(`DoNotHaveName("%s")`, escapeQuotes(e.Value)))
 		case "NamespaceEquals":
-			out = append(out, fmt.Sprintf(`DoNotResideInNamespace("%s")`, strings.ReplaceAll(e.Value, `"`, `\"`)))
+			if e.IsRegex {
+				out = append(out, fmt.Sprintf(`DoNotResideInNamespaceMatching("%s")`, escapeQuotes(e.Value)))
+			} else {
+				out = append(out, fmt.Sprintf(`DoNotResideInNamespace("%s")`, escapeQuotes(e.Value)))
+			}
 		}
 	}
 	return out
@@ -65,7 +69,12 @@ func buildSubjectPredicate(from *rule.TargetRef, selMap map[string]*rule.Selecto
 
 	if from.Scope != nil {
 		if scopeNs, _ := resolveTarget(from.Scope, selMap); scopeNs != "" {
-			parts = append(parts, fmt.Sprintf(`ResideInNamespace("%s")`, scopeNs))
+			pat, isRegex := splitRegex(scopeNs)
+			if isRegex {
+				parts = append(parts, fmt.Sprintf(`ResideInNamespaceMatching("%s")`, escapeQuotes(pat)))
+			} else {
+				parts = append(parts, fmt.Sprintf(`ResideInNamespace("%s")`, escapeQuotes(pat)))
+			}
 		}
 	}
 
@@ -84,10 +93,15 @@ func buildSinglePredicate(ref *rule.TargetRef, selMap map[string]*rule.Selector)
 	}
 
 	if !ref.IsInline {
-		if ns, _ := resolveTarget(ref, selMap); ns != "" {
-			return fmt.Sprintf(`ResideInNamespace("%s")`, ns)
+		ns, _ := resolveTarget(ref, selMap)
+		if ns == "" {
+			return ""
 		}
-		return ""
+		pat, isRegex := splitRegex(ns)
+		if isRegex {
+			return fmt.Sprintf(`ResideInNamespaceMatching("%s")`, escapeQuotes(pat))
+		}
+		return fmt.Sprintf(`ResideInNamespace("%s")`, escapeQuotes(pat))
 	}
 
 	switch ref.Kind {
@@ -96,33 +110,42 @@ func buildSinglePredicate(ref *rule.TargetRef, selMap map[string]*rule.Selector)
 		if ns == "" {
 			return ""
 		}
-		if ref.IsMatch {
-			return fmt.Sprintf(`ResideInNamespaceMatching("%s")`, ns)
+		pat, isRegex := splitRegex(ns)
+		if ref.IsMatch || isRegex {
+			return fmt.Sprintf(`ResideInNamespaceMatching("%s")`, escapeQuotes(pat))
 		}
-		return fmt.Sprintf(`ResideInNamespace("%s")`, ns)
+		return fmt.Sprintf(`ResideInNamespace("%s")`, escapeQuotes(pat))
 
-	case rule.SelectorKind_SELECTOR_CLASS:
+	case rule.SelectorKind_SELECTOR_CLASS, rule.SelectorKind_SELECTOR_INTERFACE:
+		typeFilter := "AreClasses"
+		if ref.Kind == rule.SelectorKind_SELECTOR_INTERFACE {
+			typeFilter = "AreInterfaces"
+		}
+		// Bare `class` / `interface` subject (no name pattern): emit just the
+		// type filter so rules like `interface must match "regex:..."` produce a
+		// resolvable subject.
 		if ref.Value == "" {
-			return ""
+			return fmt.Sprintf("%s()", typeFilter)
 		}
+		pat, _ := splitRegex(ref.Value)
 		if ref.IsMatch {
-			return fmt.Sprintf(`HaveNameMatching("%s")`, ref.Value)
+			return fmt.Sprintf(`%s().And().HaveNameMatching("%s")`, typeFilter, escapeQuotes(pat))
 		}
-		return fmt.Sprintf(`HaveName("%s")`, ref.Value)
-
-	case rule.SelectorKind_SELECTOR_INTERFACE:
-		if ref.Value == "" {
-			return ""
-		}
-		if ref.IsMatch {
-			return fmt.Sprintf(`HaveNameMatching("%s")`, ref.Value)
-		}
-		return fmt.Sprintf(`HaveName("%s")`, ref.Value)
+		return fmt.Sprintf(`%s().And().HaveName("%s")`, typeFilter, escapeQuotes(pat))
 
 	default:
-		if ref.Value != "" {
-			return fmt.Sprintf(`ResideInNamespace("%s")`, normalizeNamespace(ref.Value))
+		if ref.Value == "" {
+			return ""
 		}
-		return ""
+		pat, isRegex := splitRegex(normalizeNamespace(ref.Value))
+		if isRegex {
+			return fmt.Sprintf(`ResideInNamespaceMatching("%s")`, escapeQuotes(pat))
+		}
+		return fmt.Sprintf(`ResideInNamespace("%s")`, escapeQuotes(pat))
 	}
+}
+
+// escapeQuotes escapes double quotes in s for embedding inside a C# string literal.
+func escapeQuotes(s string) string {
+	return strings.ReplaceAll(s, `"`, `\"`)
 }
